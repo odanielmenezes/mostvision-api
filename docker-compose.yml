@@ -18,23 +18,19 @@ services:
       timeout: 5s
       retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    container_name: mostvision-rabbitmq
+  redis:
+    image: redis:7-alpine
+    container_name: mostvision-redis
     ports:
-      - '5672:5672'
-      - '15672:15672'
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      - '6379:6379'
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - redis_data:/data
     healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', 'check_port_connectivity']
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
   postgres_data:
-  rabbitmq_data:
+  redis_data:

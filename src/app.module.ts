@@ -9,12 +9,12 @@ import { LeadsModule } from './modules/leads/leads.module';
 import { EmailModule } from './modules/email/email.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from './database/database.module';
-import { RabbitMQModule } from './common/rabbitmq/rabbitmq.module';
 import { HttpLoggerModule } from './observability/logger/http-logger.module';
 import { ApiKeyThrottlerGuard } from './observability/logger/api-key-throttler.guard';
 import { ApiKeyClientMiddleware } from './modules/auth/middleware/api-key-client.middleware';
 import { MetricsModule } from './observability/metrics/metrics.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -31,7 +31,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     HttpLoggerModule,
     MetricsModule,
     DatabaseModule,
-    RabbitMQModule,
+    QueueModule,
     ClientsModule,
     LeadsModule,
     EmailModule,

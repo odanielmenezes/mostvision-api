@@ -4,13 +4,13 @@ API backend multi-tenant para orquestrar landing pages de multiplos clientes com
 
 O fluxo principal da plataforma:
 
-Landing page -> POST /v1/leads -> validacao de x-api-key -> rate limit por cliente -> persistencia no PostgreSQL -> publicacao do evento lead.created -> consumo por worker -> envio de email.
+Landing page -> POST /v1/leads -> validacao de x-api-key -> rate limit por cliente -> persistencia no PostgreSQL -> enqueue de job no Redis (BullMQ) -> workers assíncronos -> envio de email/webhook/processamentos.
 
 ## Stack
 
 - Node.js + NestJS
 - PostgreSQL + TypeORM
-- RabbitMQ
+- Redis + BullMQ (@nestjs/bullmq)
 - @nestjs/throttler
 - nestjs-pino (logs estruturados)
 - class-validator + class-transformer
@@ -20,8 +20,6 @@ Landing page -> POST /v1/leads -> validacao de x-api-key -> rate limit por clien
 ## Estrutura
 
 src/
-  events/
-    lead-created.event.ts
   observability/
     logger/
     metrics/
@@ -33,9 +31,18 @@ src/
     email/
   common/
     guards/
-    rabbitmq/
   database/
+  queue/
+    queue.module.ts
+    email.queue.ts
+    webhook.queue.ts
+    analytics.queue.ts
+    lead-processing.queue.ts
   workers/
+    email.worker.ts
+    webhook.worker.ts
+    analytics.worker.ts
+    lead-processing.worker.ts
 
 ## Variaveis de ambiente
 
@@ -49,7 +56,7 @@ DATABASE_USER=postgres
 DATABASE_PASSWORD=postgres
 DATABASE_NAME=mostvision
 
-RABBITMQ_URL=amqp://localhost:5672
+REDIS_URL=redis://user:password@host:port
 
 ## Subindo infraestrutura
 
@@ -60,14 +67,9 @@ docker compose up -d
 Servicos:
 
 - PostgreSQL: 5432
-- RabbitMQ AMQP: 5672
-- RabbitMQ Management UI: 15672
+- Redis: use REDIS_URL (Railway)
 
-Painel RabbitMQ:
-
-- URL: http://localhost:15672
-- Usuario: guest
-- Senha: guest
+Observacao: a fila assíncrona agora usa Redis/BullMQ. Nao ha dependencia de RabbitMQ.
 
 ## Rodando a API
 
@@ -94,9 +96,9 @@ Eventos relevantes registrados:
 
 - client.created
 - lead.created
-- publicacao/consumo de eventos RabbitMQ
-- retry agendado
-- envio para DLQ
+- queue.job.enqueued
+- queue.job.processed
+- queue.job.failed
 - analytics.event.created
 
 Exemplo de log:
@@ -186,32 +188,41 @@ Tipos permitidos de eventType:
 
 ## Filas e eventos
 
-- Exchange: mostvision.events (topic)
-- Evento publicado: lead.created
-- Payload do evento: { "leadId": "uuid" }
-- Queue principal: lead.created.queue
-- Queue retry: lead.created.retry
-- Queue DLQ: lead.created.dlq
+- BullMQ queues registradas:
+  - email
+  - webhook
+  - analytics
+  - lead-processing
 
-O worker busca os dados completos do lead no banco e processa o envio de email.
+- Exemplos de jobs:
+  - send-email
+  - send-lead-notification
+  - send-webhook
+  - process-lead
+  - process-analytics-event
 
-## Retry e DLQ
+O serviço de leads enfileira process-lead e o worker distribui para email/webhook.
 
-Estrategia de retries:
+## Retry, backoff e delay
 
-- 1 tentativa inicial
-- retry apos 5 segundos
-- retry apos 30 segundos
-- retry apos 2 minutos
-- excedeu tentativas -> DLQ
+Estrategia BullMQ aplicada nos producers:
 
-Cabecalho usado para controle:
+- attempts: 3
+- backoff: exponential com delay base de 5000ms
+- suporte a delay por job
 
-- x-retry-count
+Exemplo aplicado:
 
-Fluxo:
+```ts
+{
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 5000 },
+}
+```
 
-lead.created -> worker -> erro -> lead.created.retry (com expiration) -> volta para lead.created.queue -> excedeu retries -> lead.created.dlq
+## Fluxo assíncrono de lead
+
+POST /v1/leads -> grava lead -> enqueue process-lead -> worker lead-processing -> enqueue send-lead-notification + send-webhook -> workers finais processam.
 
 ## Analytics
 
@@ -229,8 +240,8 @@ Esses dados formam a base para dashboards futuros de conversao por cliente.
 
 - API key guard continua desacoplado no modulo auth
 - Middleware resolve contexto do cliente antes dos guards globais
-- RabbitMQ encapsulado em modulo reutilizavel com suporte a retry/DLQ
-- Worker e orientado a banco como source of truth (evento enxuto)
+- QueueModule centraliza configuracao BullMQ e Redis
+- Producers e workers separados por responsabilidade
 - Modulo de observabilidade separado para logger e metricas em memoria
 
 ## Teste rapido do fluxo

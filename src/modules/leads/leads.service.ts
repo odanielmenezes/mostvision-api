@@ -2,10 +2,8 @@ import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PinoLogger } from 'nestjs-pino';
 import { Repository } from 'typeorm';
-import { LEAD_CREATED_ROUTING_KEY } from '../../common/rabbitmq/rabbitmq.constants';
-import { RabbitMQService } from '../../common/rabbitmq/rabbitmq.service';
-import { LEAD_CREATED_EVENT_NAME, LeadCreatedEvent } from '../../events/lead-created.event';
 import { MetricsService } from '../../observability/metrics/metrics.service';
+import { LeadProcessingQueueService } from '../../queue/lead-processing.queue';
 import { Client } from '../clients/entities/client.entity';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { Lead } from './entities/lead.entity';
@@ -15,7 +13,7 @@ export class LeadsService implements OnModuleInit {
 	constructor(
 		@InjectRepository(Lead)
 		private readonly leadsRepository: Repository<Lead>,
-		private readonly rabbitMQService: RabbitMQService,
+		private readonly leadProcessingQueueService: LeadProcessingQueueService,
 		private readonly logger: PinoLogger,
 		private readonly metricsService: MetricsService,
 	) {}
@@ -35,11 +33,13 @@ export class LeadsService implements OnModuleInit {
 		const savedLead = await this.leadsRepository.save(lead);
 		this.metricsService.increment('leads.created');
 
-		const event: LeadCreatedEvent = { leadId: savedLead.id };
-		await this.rabbitMQService.publish(LEAD_CREATED_ROUTING_KEY, event);
+		await this.leadProcessingQueueService.processLeadJob({
+			leadId: savedLead.id,
+		});
 
 		this.logger.info({
-			event: LEAD_CREATED_EVENT_NAME,
+			event: 'lead.created',
+			action: 'queued_for_processing',
 			clientId: client.id,
 			leadId: savedLead.id,
 			timestamp: new Date().toISOString(),

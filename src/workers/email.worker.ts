@@ -1,59 +1,56 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
 import { PinoLogger } from 'nestjs-pino';
 import {
-  LEAD_CREATED_DLQ,
-  LEAD_CREATED_DLQ_ROUTING_KEY,
-  LEAD_CREATED_QUEUE,
-  LEAD_CREATED_RETRY_DELAYS_MS,
-  LEAD_CREATED_RETRY_QUEUE,
-  LEAD_CREATED_RETRY_ROUTING_KEY,
-  LEAD_CREATED_ROUTING_KEY,
-} from '../common/rabbitmq/rabbitmq.constants';
-import { RabbitMQService } from '../common/rabbitmq/rabbitmq.service';
-import { LeadCreatedEvent } from '../events/lead-created.event';
+  EMAIL_JOB_SEND_EMAIL,
+  EMAIL_JOB_SEND_LEAD_NOTIFICATION,
+  EMAIL_QUEUE,
+} from '../queue/queue.constants';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import { ClientsService } from '../modules/clients/clients.service';
 import { EmailService } from '../modules/email/email.service';
 import { LeadsService } from '../modules/leads/leads.service';
 
 @Injectable()
-export class EmailWorker implements OnModuleInit {
+@Processor(EMAIL_QUEUE)
+export class EmailWorker extends WorkerHost {
   constructor(
-    private readonly rabbitMQService: RabbitMQService,
     private readonly clientsService: ClientsService,
     private readonly leadsService: LeadsService,
     private readonly emailService: EmailService,
     private readonly logger: PinoLogger,
     private readonly metricsService: MetricsService,
-  ) {}
-
-  async onModuleInit(): Promise<void> {
-    this.logger.setContext(EmailWorker.name);
-
-    await this.rabbitMQService.consumeWithRetry({
-      queue: LEAD_CREATED_QUEUE,
-      routingKey: LEAD_CREATED_ROUTING_KEY,
-      retryQueue: LEAD_CREATED_RETRY_QUEUE,
-      retryRoutingKey: LEAD_CREATED_RETRY_ROUTING_KEY,
-      deadLetterQueue: LEAD_CREATED_DLQ,
-      deadLetterRoutingKey: LEAD_CREATED_DLQ_ROUTING_KEY,
-      retryDelaysMs: LEAD_CREATED_RETRY_DELAYS_MS,
-      handler: async (payload) => {
-        await this.handleLeadCreated(payload as LeadCreatedEvent);
-      },
-    });
-
-    this.logger.info({
-      event: 'lead.created',
-      action: 'worker_listening',
-      queue: LEAD_CREATED_QUEUE,
-      retryQueue: LEAD_CREATED_RETRY_QUEUE,
-      dlq: LEAD_CREATED_DLQ,
-      timestamp: new Date().toISOString(),
-    });
+  ) {
+    super();
   }
 
-  private async handleLeadCreated(payload: LeadCreatedEvent): Promise<void> {
+  async process(job: Job): Promise<void> {
+    this.logger.setContext(EmailWorker.name);
+
+    switch (job.name) {
+      case EMAIL_JOB_SEND_LEAD_NOTIFICATION:
+        await this.handleLeadCreated(job.data as { leadId: string });
+        return;
+      case EMAIL_JOB_SEND_EMAIL:
+        this.logger.info({
+          event: 'email.send',
+          action: 'worker_processed',
+          data: job.data,
+          timestamp: new Date().toISOString(),
+        });
+        this.metricsService.increment('workers.email.send_email_processed');
+        return;
+      default:
+        this.logger.warn({
+          event: 'email.unknown_job',
+          jobName: job.name,
+          timestamp: new Date().toISOString(),
+        });
+    }
+  }
+
+  private async handleLeadCreated(payload: { leadId: string }): Promise<void> {
     const lead = await this.leadsService.findOne(payload.leadId);
     const client = await this.clientsService.findOne(lead.clientId);
 
