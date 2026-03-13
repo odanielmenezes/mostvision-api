@@ -15,6 +15,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         ssl: {
           rejectUnauthorized: false,
         },
+        extra: {
+          family: 4,
+          connectionTimeoutMillis: 10000,
+        },
       }),
     }),
   ],
