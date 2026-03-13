@@ -14,7 +14,7 @@ export class Lead {
   @Column()
   email: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', length: 30, nullable: true })
   phone: string | null;
 
   @Column({ type: 'text', nullable: true })

@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClientsModule } from '../modules/clients/clients.module';
 import { EmailModule } from '../modules/email/email.module';
 import { LeadsModule } from '../modules/leads/leads.module';
@@ -21,9 +22,21 @@ import { WebhookQueueService } from './webhook.queue';
 @Global()
 @Module({
   imports: [
-    BullModule.forRoot({
-      connection: {
-        url: process.env.REDIS_URL,
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL');
+
+        if (!redisUrl) {
+          throw new Error('REDIS_URL is required to initialize BullMQ');
+        }
+
+        return {
+          connection: {
+            url: redisUrl,
+          },
+        };
       },
     }),
     BullModule.registerQueue(

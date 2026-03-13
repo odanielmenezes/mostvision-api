@@ -6,6 +6,6 @@ import { ApiKeyClientMiddleware } from './middleware/api-key-client.middleware';
 @Module({
   imports: [ClientsModule],
   providers: [ApiKeyGuard, ApiKeyClientMiddleware],
-  exports: [ApiKeyGuard, ApiKeyClientMiddleware],
+  exports: [ApiKeyGuard, ApiKeyClientMiddleware, ClientsModule],
 })
 export class AuthModule {}
